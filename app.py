@@ -10,10 +10,10 @@ import dash_core_components as dcc
 import dash_html_components as html
 import dash_table
 import pandas as pd
+import phonenumbers
 from dash.dependencies import Input, Output, State
 from dotenv import load_dotenv
 from jinja2 import Template
-import phonenumbers
 
 from twilio_client import TwilioClient
 
@@ -92,7 +92,8 @@ content = html.Div(
                         html.Br(),
                         dbc.Input(id='image-url', placeholder="Image URL to send", bs_size="md", type='url'),
                         dbc.FormText(
-                            ["Use ", html.A("https://imgur.com/upload", href="https://imgur.com/upload", target="_blank"),
+                            ["Use ",
+                             html.A("https://imgur.com/upload", href="https://imgur.com/upload", target="_blank"),
                              " to generate a URL for your image."]
                         ),
                     ]),
@@ -132,6 +133,7 @@ app.layout = html.Div([
     dbc.Spinner(html.Div(id="loading-output"), fullscreen=True, size='lg',
                 fullscreen_style={'backgroundColor': 'rgba(0, 0, 0, 0.14)'}),
     dcc.Store(id='send-data-store'),
+    dcc.Store(id='send-counter'),
 ])
 
 
@@ -141,7 +143,7 @@ app.layout = html.Div([
               State('upload-data', 'filename'))
 def update_table(contents, filename):
     df = pd.DataFrame(columns=COL_NAMES)
-    if contents is not None:
+    if contents:
         content_type, content_string = contents.split(',')
         decoded = base64.b64decode(content_string)
         try:
@@ -181,11 +183,13 @@ def update_table(contents, filename):
     ]
 
 
-# Message preview
-@app.callback(Output('message-preview', 'children'),
-              [Input('image-url', 'value'),
-               Input('input-text', 'value'),
-               Input('table', 'data')])
+# Updates message preview when input info is changed
+@app.callback(
+    Output('message-preview', 'children'),
+    [Input('image-url', 'value'),
+     Input('input-text', 'value'),
+     Input('table', 'data')]
+)
 def update_message_preview(img_url, text_value, data):
     if data and isinstance(data, list):
         data = data[0]
@@ -235,26 +239,28 @@ def confirm_sms_send(open_confirm, cancel_confirm, confirm, is_open, data):
         msg = "No data uploaded. Unable to send anything"
         disabled = True
     if confirm and not disabled:
-        return not is_open, msg, disabled, data
+        return not is_open, msg, disabled, True
     elif open_confirm or cancel_confirm or confirm:
-        return not is_open, msg, disabled, None
-    return is_open, msg, disabled, None
+        return not is_open, msg, disabled, False
+    return is_open, msg, disabled, False
 
 
+# callback that handles sending the data
 @app.callback(
     [Output("loading-output", "children"),
      Output('table', 'data')],
     [Input("send-data-store", "data")],
-    [State('table', 'data'),
+    [State("table", 'data'),
      State('input-text', 'value'),
      State('image-url', 'value')]
 )
-def load_output(send_data, table_data, input_text, image_url):
-    try:
-        if send_data and input_text:
-            if isinstance(send_data, dict):
-                send_data = [send_data]
-            for row in send_data:
+def send_sms(send_data, table_data, input_text, image_url):
+    if send_data and input_text:
+        errored = []
+        if isinstance(table_data, dict):
+            table_data = [table_data]
+        for row in table_data:
+            try:
                 message = Template(input_text).render(**row)
                 p = phonenumbers.parse(str(row['phone_number']), 'US')
                 if phonenumbers.is_valid_number(p):
@@ -264,26 +270,18 @@ def load_output(send_data, table_data, input_text, image_url):
                         message=message,
                         media_url=image_url if image_url else None
                     )
-            toast = dbc.Toast(
-                "Messages have been sent.",
-                id="positioned-toast",
-                header="Success",
-                is_open=True,
-                dismissable=True,
-                icon="success",
-                style={"position": "fixed", "top": 20, "right": 20, "width": 800},
-                duration=4000,
-            )
-            return toast, None
-        return None, table_data
-    except Exception as e:
+            except Exception as e:
+                row['err'] = str(e)
+                errored.append(row)
         toast = dbc.Toast(
-            str(e),
+            f"Messages have been sent{f' with {len(errored)} error(s).' if errored else '.'}",
             id="positioned-toast",
-            header="Error",
+            header="Success",
             is_open=True,
             dismissable=True,
-            icon="error",
+            icon="success",
             style={"position": "fixed", "top": 20, "right": 20, "width": 800},
+            duration=4000,
         )
-        return toast, None
+        return toast, errored
+    return None, table_data
