@@ -289,4 +289,4 @@ def load_output(send_data, table_data, input_text, image_url):
 
 
 if __name__ == "__main__":
-    app.run_server(debug=True)
+    app.run_server()
