@@ -24,7 +24,8 @@ COL_NAMES = ['first_name', 'last_name', 'phone_number']
 
 app = dash.Dash('Bulk SMS', external_stylesheets=[dbc.themes.COSMO])
 auth = dash_auth.BasicAuth(app, {getenv("USERNAME"): getenv("PASSWORD")})
-twilio_client = TwilioClient(app.server)
+server = app.server
+twilio_client = TwilioClient(server)
 
 sidebar = html.Div(
     style={
@@ -286,7 +287,3 @@ def load_output(send_data, table_data, input_text, image_url):
             style={"position": "fixed", "top": 20, "right": 20, "width": 800},
         )
         return toast, None
-
-
-if __name__ == "__main__":
-    app.run_server()
